@@ -1,7 +1,9 @@
 fastapi
 uvicorn
 pymongo
+motor
 python-dotenv
-
-
-# run pip install -r requirements.txt
+pywebpush
+requests
+httpx
+schedule
