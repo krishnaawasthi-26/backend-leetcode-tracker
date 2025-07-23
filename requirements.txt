@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pymongo
+motor
+python-dotenv
+pywebpush
+requests
+httpx
+schedule
