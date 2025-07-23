@@ -2,7 +2,7 @@ import subprocess
 import threading
 
 def run_fastapi():
-    subprocess.run(["uvicorn", "api.main:app", "--reload", "--port", "8002"])
+    subprocess.run(["uvicorn", "api.main:app", "--host","0.0.0.0","--reload", "--port", "8002"])
 
 def run_sync_script():
     subprocess.run(["python", "sync_submissions.py"])
