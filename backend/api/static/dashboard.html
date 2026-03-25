@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LeetCode Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f6f7fb; color: #111827; }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin: 16px 0; }
+    .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 18px rgba(0,0,0,0.05); }
+    .charts { display: grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap: 14px; }
+    .chart-card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 4px 18px rgba(0,0,0,0.05); }
+    .switch { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input, select, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ddd; }
+    button { background: #2563eb; color: #fff; border: none; cursor: pointer; }
+    #status { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>LeetCode Analytics Dashboard</h1>
+      <div class="switch">
+        <label>Active Profile:</label>
+        <select id="profileSelect"></select>
+        <input id="password" type="password" placeholder="Password to switch" />
+        <button id="switchBtn">Switch</button>
+        <button onclick="window.location.href='/'">Logout</button>
+      </div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="cards">
+      <div class="card"><strong>Total Solved</strong><div id="total">0</div></div>
+      <div class="card"><strong>Today</strong><div id="today">0</div></div>
+      <div class="card"><strong>Best Day</strong><div id="bestDay">-</div></div>
+      <div class="card"><strong>Best Month</strong><div id="bestMonth">-</div></div>
+      <div class="card"><strong>App User</strong><div id="appUser">-</div></div>
+      <div class="card"><strong>Active LC Profile</strong><div id="activeProfile">-</div></div>
+    </div>
+
+    <div class="charts">
+      <div class="chart-card"><h3>Daily Solves</h3><canvas id="dailyChart"></canvas></div>
+      <div class="chart-card"><h3>Weekday Distribution (Pie)</h3><canvas id="weekdayChart"></canvas></div>
+      <div class="chart-card"><h3>Monthly Solves</h3><canvas id="monthlyChart"></canvas></div>
+      <div class="chart-card"><h3>Hourly Pattern</h3><canvas id="hourlyChart"></canvas></div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const username = params.get('username') || localStorage.getItem('app_username');
+    const statusEl = document.getElementById('status');
+
+    if (!username) {
+      statusEl.textContent = 'No username found. Please login again.';
+      statusEl.style.color = 'red';
+    }
+
+    let charts = [];
+
+    function renderChart(id, config) {
+      const ctx = document.getElementById(id).getContext('2d');
+      const chart = new Chart(ctx, config);
+      charts.push(chart);
+    }
+
+    function resetCharts() {
+      charts.forEach(c => c.destroy());
+      charts = [];
+    }
+
+    async function loadDashboard(selectedProfile = null) {
+      const profileQuery = selectedProfile ? `&profile=${encodeURIComponent(selectedProfile)}` : ''
+      const res = await fetch(`/api/report/summary?username=${encodeURIComponent(username)}${profileQuery}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load dashboard');
+      }
+
+      document.getElementById('total').textContent = data.total_submissions;
+      document.getElementById('today').textContent = data.today_count;
+      document.getElementById('bestDay').textContent = data.best_day ? `${data.best_day.date} (${data.best_day.count})` : '-';
+      document.getElementById('bestMonth').textContent = data.best_month ? `${data.best_month.month} (${data.best_month.count})` : '-';
+      document.getElementById('appUser').textContent = data.username;
+      document.getElementById('activeProfile').textContent = data.active_profile || '-';
+
+      const select = document.getElementById('profileSelect');
+      select.innerHTML = '';
+      (data.linked_profiles || []).forEach(profile => {
+        const option = document.createElement('option');
+        option.value = profile;
+        option.textContent = profile;
+        if (profile === data.active_profile) option.selected = true;
+        select.appendChild(option);
+      });
+
+      resetCharts();
+
+      renderChart('dailyChart', {
+        type: 'line',
+        data: {
+          labels: data.daily_counts.map(x => x.label),
+          datasets: [{ label: 'Solved', data: data.daily_counts.map(x => x.count), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.2)' }]
+        }
+      });
+
+      renderChart('weekdayChart', {
+        type: 'pie',
+        data: {
+          labels: data.weekday_counts.map(x => x.label),
+          datasets: [{
+            data: data.weekday_counts.map(x => x.count),
+            backgroundColor: ['#1d4ed8','#7c3aed','#db2777','#dc2626','#ea580c','#ca8a04','#059669']
+          }]
+        }
+      });
+
+      renderChart('monthlyChart', {
+        type: 'bar',
+        data: {
+          labels: data.monthly_counts.map(x => x.label),
+          datasets: [{ label: 'Solved', data: data.monthly_counts.map(x => x.count), backgroundColor: '#10b981' }]
+        }
+      });
+
+      renderChart('hourlyChart', {
+        type: 'bar',
+        data: {
+          labels: data.hourly_counts.map(x => x.label),
+          datasets: [{ label: 'Solved', data: data.hourly_counts.map(x => x.count), backgroundColor: '#f59e0b' }]
+        }
+      });
+    }
+
+    async function switchProfile() {
+      const target = document.getElementById('profileSelect').value;
+      const password = document.getElementById('password').value;
+      if (!target || !password) {
+        statusEl.textContent = 'Select profile and enter password.';
+        statusEl.style.color = 'red';
+        return;
+      }
+
+      const response = await fetch('/api/auth/switch-profile', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ username, password, target_leetcode_username: target })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        statusEl.textContent = data.detail || 'Switch failed';
+        statusEl.style.color = 'red';
+        return;
+      }
+      statusEl.textContent = 'Profile switched successfully';
+      statusEl.style.color = 'green';
+      document.getElementById('password').value = '';
+      await loadDashboard(target);
+    }
+
+    document.getElementById('switchBtn').addEventListener('click', switchProfile);
+
+    document.getElementById('profileSelect').addEventListener('change', async (e) => {
+      await loadDashboard(e.target.value);
+    });
+
+    setInterval(() => loadDashboard(document.getElementById('profileSelect').value || null), 15000);
+
+    loadDashboard().catch(err => {
+      statusEl.textContent = err.message;
+      statusEl.style.color = 'red';
+    });
+  </script>
+</body>
+</html>
