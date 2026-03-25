@@ -1,11 +1,21 @@
 import subprocess
+import sys
 import threading
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parent
+
 
 def run_fastapi():
-    subprocess.run(["uvicorn", "api.main:app", "--host","0.0.0.0","--port", "8002"])
+    subprocess.run(
+        [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8002"],
+        cwd=BACKEND_DIR,
+    )
+
 
 def run_sync_script():
-    subprocess.run(["python", "sync_submissions.py"])
+    subprocess.run([sys.executable, "sync_submissions.py"], cwd=BACKEND_DIR)
+
 
 if __name__ == "__main__":
     t1 = threading.Thread(target=run_fastapi)
