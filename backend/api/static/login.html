@@ -37,7 +37,7 @@
       <label for="switch_account" style="margin:0;font-weight:500;">Switch linked account if URL is different</label>
     </div>
 
-    <button id="submit">Login & Start Tracking</button>
+    <button id="submit">Login & Open Dashboard</button>
 
     <div id="result" class="result"></div>
   </div>
@@ -47,15 +47,9 @@
       if (!data) return 'Login failed';
       if (typeof data.detail === 'string') return data.detail;
       if (Array.isArray(data.detail)) {
-        return data.detail.map(item => {
-          if (typeof item === 'string') return item;
-          if (item && item.msg) return item.msg;
-          return JSON.stringify(item);
-        }).join('; ');
+        return data.detail.map(item => item?.msg || JSON.stringify(item)).join('; ');
       }
-      if (data.detail && typeof data.detail === 'object') {
-        return JSON.stringify(data.detail);
-      }
+      if (data.detail && typeof data.detail === 'object') return JSON.stringify(data.detail);
       return data.message || 'Login failed';
     }
 
@@ -79,20 +73,21 @@
         });
 
         const data = await response.json();
+        if (!response.ok) throw new Error(parseError(data));
 
-        if (!response.ok) {
-          throw new Error(parseError(data));
-        }
-
-        const mode = data.switched ? 'Switched account' : 'Tracking active';
-        result.textContent = `✅ ${data.message} (${mode}: ${data.leetcode_url})`;
+        localStorage.setItem('app_username', payload.username);
+        result.textContent = `✅ ${data.message}`;
         result.classList.add('ok');
+        result.style.display = 'block';
+
+        setTimeout(() => {
+          window.location.href = `/dashboard?username=${encodeURIComponent(payload.username)}`;
+        }, 500);
       } catch (err) {
         result.textContent = `❌ ${err.message}`;
         result.classList.add('error');
+        result.style.display = 'block';
       }
-
-      result.style.display = 'block';
     });
   </script>
 </body>

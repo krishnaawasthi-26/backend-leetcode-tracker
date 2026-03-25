@@ -40,7 +40,7 @@ def _extract_leetcode_username(leetcode_url: str) -> str:
     for pattern in patterns:
         match = re.match(pattern, normalized)
         if match:
-            return match.group(2)
+            return match.group(2).lower()
 
     raise HTTPException(
         status_code=400,
@@ -147,4 +147,61 @@ async def login_or_register(payload: LoginRequest):
         "leetcode_url": f"https://leetcode.com/u/{leetcode_username}/",
         "verified": True,
         "switched": is_switching,
+    }
+
+
+class SwitchProfileRequest(BaseModel):
+    username: str = Field(min_length=3)
+    password: str = Field(min_length=4)
+    target_leetcode_username: str = Field(min_length=1)
+
+
+@router.get("/profiles/{username}")
+async def get_profiles(username: str):
+    user_doc = await collection.find_one(
+        {"type": "tracked_user", "username": username},
+        {"_id": 0, "username": 1, "leetcode_username": 1, "linked_accounts": 1},
+    )
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "username": user_doc["username"],
+        "active_profile": user_doc.get("leetcode_username"),
+        "linked_profiles": user_doc.get("linked_accounts", []),
+    }
+
+
+@router.post("/switch-profile")
+async def switch_profile(payload: SwitchProfileRequest):
+    target = payload.target_leetcode_username.strip().lower()
+
+    user_doc = await collection.find_one({"type": "tracked_user", "username": payload.username})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    password_hash = hashlib.sha256(payload.password.encode("utf-8")).hexdigest()
+    if user_doc.get("password_hash") != password_hash:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    linked_accounts = user_doc.get("linked_accounts", [])
+    if target not in linked_accounts:
+        raise HTTPException(status_code=400, detail="Profile is not linked with this user")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await collection.update_one(
+        {"type": "tracked_user", "username": payload.username},
+        {
+            "$set": {
+                "leetcode_username": target,
+                "leetcode_url": f"https://leetcode.com/u/{target}/",
+                "updated_at": now,
+            }
+        },
+    )
+
+    return {
+        "message": "Active profile switched successfully",
+        "username": payload.username,
+        "active_profile": target,
     }
