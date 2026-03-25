@@ -1,23 +1,14 @@
-# backend/sync_submissions.py
-
 import asyncio
-import httpx
 import traceback
 from datetime import datetime
+
+import httpx
+
 from database.connection import collection
 from utils.notification import send_web_push
 
-USERNAME = "krishna-jangid"
-# your own API to fetch the newest stored submission
-API_URL = "http://localhost:8002/api/submissions/?skip=0&limit=1"
-
 GRAPHQL_URL = "https://leetcode.com/graphql"
-HEADERS = {
-    "Content-Type": "application/json",
-    "Referer": f"https://leetcode.com/{USERNAME}/",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-}
-QUERY = {
+QUERY_TEMPLATE = {
     "query": """
         query recentAcSubmissions($username: String!) {
             recentAcSubmissionList(username: $username) {
@@ -25,82 +16,102 @@ QUERY = {
                 timestamp
             }
         }
-    """,
-    "variables": {"username": USERNAME}
+    """
 }
 
 
-async def fetch_recent_leetcode():
-    async with httpx.AsyncClient() as client:
-        r = await client.post(GRAPHQL_URL, json=QUERY, headers=HEADERS)
-        if r.status_code != 200:
-            print("LeetCode fetch failed:", r.status_code)
-            return []
-        arr = r.json().get("data", {}).get("recentAcSubmissionList", [])
-        return [
-            {
-                "title": item["title"],
-                "time": datetime.fromtimestamp(int(item["timestamp"])).strftime("%Y-%m-%d %I:%M %p"),
-                "profile_link": f"https://leetcode.com/{USERNAME}/"
-            }
-            for item in arr if item.get("title")
-        ]
+async def fetch_recent_leetcode(leetcode_username: str):
+    payload = {
+        **QUERY_TEMPLATE,
+        "variables": {"username": leetcode_username},
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Referer": f"https://leetcode.com/{leetcode_username}/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(GRAPHQL_URL, json=payload, headers=headers)
+
+    if response.status_code != 200:
+        print(f"LeetCode fetch failed for {leetcode_username}: {response.status_code}")
+        return []
+
+    arr = response.json().get("data", {}).get("recentAcSubmissionList", [])
+    return [
+        {
+            "title": item["title"],
+            "time": datetime.fromtimestamp(int(item["timestamp"])).strftime("%Y-%m-%d %I:%M %p"),
+            "leetcode_username": leetcode_username,
+            "leetcode_url": f"https://leetcode.com/{leetcode_username}/",
+        }
+        for item in arr
+        if item.get("title")
+    ]
 
 
-async def fetch_latest_db_entry():
-    async with httpx.AsyncClient() as client:
-        r = await client.get(API_URL)
-        if r.status_code != 200:
-            return None
-        arr = r.json()
-        return arr[0] if isinstance(arr, list) and arr else None
+async def sync_user_submissions(user_doc: dict):
+    app_username = user_doc["username"]
+    leetcode_username = user_doc["leetcode_username"]
 
-
-async def sync_once():
-    recent = await fetch_recent_leetcode()
+    recent = await fetch_recent_leetcode(leetcode_username)
     if not recent:
-        print("No recent LeetCode data fetched.")
-        return
+        return 0
 
-    latest = await fetch_latest_db_entry()
-    new_count = 0
+    inserted = 0
+    subscriptions = await collection.find({"type": "subscription"}).to_list(length=None)
 
-    # process from oldest to newest
     for entry in reversed(recent):
-        is_new = (
-            latest is None
-            or entry["title"] != latest.get("title")
-            or entry["time"]  != latest.get("time")
+        exists = await collection.find_one(
+            {
+                "type": "leetcode_submission",
+                "data.app_username": app_username,
+                "data.leetcode_username": leetcode_username,
+                "data.title": entry["title"],
+                "data.time": entry["time"],
+            }
         )
-        if not is_new:
-            # once we hit an already‐stored entry, older ones are also stored
-            break
 
-        # ensure not duplicated in DB
-        exists = await collection.find_one({
-            "type": "leetcode_submission",
-            "data.title": entry["title"],
-            "data.time":  entry["time"]
-        })
         if exists:
             continue
 
-        # insert and notify
+        payload = {
+            **entry,
+            "app_username": app_username,
+        }
+
         await collection.insert_one({
             "type": "leetcode_submission",
-            "data": entry
+            "data": payload,
         })
-        print(f"Inserted new submission: {entry['title']} at {entry['time']}")
-        new_count += 1
 
-        subs = await collection.find({"type": "subscription"}).to_list(length=None)
-        for sub in subs:
+        inserted += 1
+        print(f"Inserted {app_username} -> {entry['title']} at {entry['time']}")
+
+        for sub in subscriptions:
             try:
-                send_web_push(sub["subscription"], f"✅ New LeetCode problem solved: {entry['title']}")
-            except Exception as e:
-                print("Failed to notify", sub.get("_id"), ":", e)
+                send_web_push(
+                    sub["subscription"],
+                    f"✅ {app_username} solved: {entry['title']}",
+                )
+            except Exception as exc:
+                print("Failed to notify", sub.get("_id"), ":", exc)
 
-    if new_count == 0:
+    return inserted
+
+
+async def sync_once():
+    tracked_users = await collection.find({"type": "tracked_user", "verified": True}).to_list(length=None)
+    if not tracked_users:
+        print("No tracked users found. Log in via / and add a LeetCode URL first.")
+        return
+
+    total_inserted = 0
+    for user_doc in tracked_users:
+        total_inserted += await sync_user_submissions(user_doc)
+
+    if total_inserted == 0:
         print("No new submissions to insert.")
 
 
@@ -108,8 +119,8 @@ async def main_loop():
     while True:
         try:
             await sync_once()
-        except Exception as e:
-            print("❌ Error in sync_once:", e)
+        except Exception as exc:
+            print("❌ Error in sync_once:", exc)
             traceback.print_exc()
         await asyncio.sleep(10)
 

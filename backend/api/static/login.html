@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LeetCode Tracker Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7fb; margin: 0; }
+    .container { max-width: 460px; margin: 60px auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+    h1 { margin-top: 0; font-size: 1.4rem; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; padding: 10px; margin-top: 6px; border: 1px solid #ddd; border-radius: 8px; }
+    .switch-row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+    .switch-row input { width: auto; margin-top: 0; }
+    button { margin-top: 16px; width: 100%; background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 12px; font-weight: 700; cursor: pointer; }
+    .result { margin-top: 12px; padding: 10px; border-radius: 8px; display: none; }
+    .ok { background: #e6ffed; color: #14532d; }
+    .error { background: #fee2e2; color: #7f1d1d; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>LeetCode Tracker Login</h1>
+    <p>Enter your account and LeetCode profile URL to start tracking.</p>
+
+    <label for="username">App Username</label>
+    <input id="username" placeholder="your_username" />
+
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="••••••" />
+
+    <label for="leetcode_url">LeetCode Profile URL</label>
+    <input id="leetcode_url" placeholder="https://leetcode.com/u/your_username/" />
+
+    <div class="switch-row">
+      <input id="switch_account" type="checkbox" />
+      <label for="switch_account" style="margin:0;font-weight:500;">Switch linked account if URL is different</label>
+    </div>
+
+    <button id="submit">Login & Start Tracking</button>
+
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    function parseError(data) {
+      if (!data) return 'Login failed';
+      if (typeof data.detail === 'string') return data.detail;
+      if (Array.isArray(data.detail)) {
+        return data.detail.map(item => {
+          if (typeof item === 'string') return item;
+          if (item && item.msg) return item.msg;
+          return JSON.stringify(item);
+        }).join('; ');
+      }
+      if (data.detail && typeof data.detail === 'object') {
+        return JSON.stringify(data.detail);
+      }
+      return data.message || 'Login failed';
+    }
+
+    const result = document.getElementById('result');
+    document.getElementById('submit').addEventListener('click', async () => {
+      result.style.display = 'none';
+      result.className = 'result';
+
+      const payload = {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+        leetcode_url: document.getElementById('leetcode_url').value.trim(),
+        switch_account: document.getElementById('switch_account').checked,
+      };
+
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(parseError(data));
+        }
+
+        const mode = data.switched ? 'Switched account' : 'Tracking active';
+        result.textContent = `✅ ${data.message} (${mode}: ${data.leetcode_url})`;
+        result.classList.add('ok');
+      } catch (err) {
+        result.textContent = `❌ ${err.message}`;
+        result.classList.add('error');
+      }
+
+      result.style.display = 'block';
+    });
+  </script>
+</body>
+</html>

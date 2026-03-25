@@ -1,9 +1,20 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import submissions, add_submission, recent_submission,notifications,leetcode_submissions
+from fastapi.responses import HTMLResponse
+
+from api.routes import (
+    add_submission,
+    auth,
+    leetcode_submissions,
+    notifications,
+    recent_submission,
+    submissions,
+)
+
 app = FastAPI(title="LeetCode Tracker API")
 
-# Allow frontend on any origin (change for production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,12 +23,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
 app.include_router(submissions.router)
 app.include_router(notifications.router)
 app.include_router(add_submission.router)
 app.include_router(recent_submission.router)
 app.include_router(leetcode_submissions.router)
-@app.get("/")
+app.include_router(auth.router)
+
+
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return {"message": "LeetCode Tracker API is running"}
+    login_path = Path(__file__).resolve().parent / "static" / "login.html"
+    return login_path.read_text(encoding="utf-8")
